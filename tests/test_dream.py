@@ -57,7 +57,7 @@ def test_last_batch_of_one_sample(toy_log):
     ids = sorted(seqs)
     n = 0
     train = {}
-    for c in ids:                                   # grow the training set to 64k + 1 prefixes
+    for c in ids:                                   
         train[c] = seqs[c]
         n += len(seqs[c]) - 1
         if n % 64 == 1:
