@@ -1,0 +1,10 @@
+# Data are never committed (DEV1 contains personal data; public logs have their own licences)
+/data
+/cache/
+/results/
+/logs/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.venv/

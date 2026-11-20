@@ -1,0 +1,147 @@
+# Experimental configuration of the paper.
+# Every value read by experiments/run.py comes from this file.
+
+protocol:
+  # Case-level 5-fold cross-validation of the PPM benchmark of Rama-Maneiro,
+  # Vidal and Lama (IEEE TSC 2023): KFold(5, shuffle=True, random_state=42),
+  # the last 20% of each training fold used for validation (early stopping).
+  n_folds: 5
+  val_frac: 0.20
+  split_seed: 42
+  model_seeds: [42]
+  early_stop_metric: NDCG@5
+  weight_decay: 1.0e-5          # lambda parameters are excluded from decay
+  eval_batch_size: 256
+  # Priors
+  max_hop: 8                    # K of the distance-aware DFG prior
+  noise_threshold: 0.20         # Inductive Miner, fixed a priori, never tuned
+  # BERT4Rec: share of training samples masking only the last event, so that
+  # training matches prediction (MASK appended after the prefix). Not tuned.
+  bert_last_item_prob: 0.5
+
+# Training regimes (identical for a baseline and its enhanced models)
+regimes:
+  small:  {batch_size: 8,  n_epochs: 500, patience: 50}     # DEV1 (88 cases)
+  medium: {batch_size: 32, n_epochs: 100, patience: 10}     # OULAD, EdNet
+  large:  {batch_size: 64, n_epochs: 100, patience: 15}     # business logs
+
+# Datasets. `loader` names a function of pmpriors.data.registry; `args` are
+# passed to it (paths relative to the repository root). `max_len` is the
+# model's context window. `eval_cap` samples at most that many prefixes per
+# test case (seeded) for the two largest logs.
+datasets:
+  dev1-bloom:
+    loader: dev1
+    args: {csv_path: data/MOODLE2EVENTLOG/MOODLE2EVENTLOGenrichedLog_blooms_activities_only.csv,
+           item_level: bloom}
+    max_len: 200
+    regime: small
+  dev1-section:
+    loader: dev1
+    args: {csv_path: data/MOODLE2EVENTLOG/MOODLE2EVENTLOGenrichedLog_blooms_activities_only.csv,
+           item_level: section}
+    max_len: 200
+    regime: small
+  dev1-resource:
+    loader: dev1
+    args: {csv_path: data/MOODLE2EVENTLOG/MOODLE2EVENTLOGenrichedLog_blooms_activities_only.csv,
+           item_level: resource}
+    max_len: 200
+    regime: small
+  oulad-fff:
+    loader: oulad
+    args: {oulad_dir: data/OULAD, module: FFF, max_seq_len: 200}
+    max_len: 200
+    regime: medium
+    eval_cap: 50
+  ednet-kt3:
+    loader: ednet
+    args: {kt3_dir: data/KT3, max_users: 5000, max_seq_len: 200}
+    max_len: 200
+    regime: medium
+    eval_cap: 50
+  bpi-2012:
+    loader: eventlog
+    args: {path: data/BPI12/BPI_Challenge_2012.xes}
+    max_len: 175                 
+    regime: large
+  # Public event logs (scripts/download_public_logs.py). max_len = longest
+  # case (helpdesk 15, sepsis 185, bpic2013-incidents 123, bpic2020-domestic 24).
+  helpdesk:
+    loader: eventlog
+    args: {path: data/public/helpdesk.csv, case_col: Case ID, activity_col: Activity,
+           time_col: Complete Timestamp}
+    max_len: 15
+    regime: large
+  sepsis:
+    loader: eventlog
+    args: {path: data/public/sepsis.xes}
+    max_len: 185
+    regime: large
+  bpic2013-incidents:
+    loader: eventlog
+    args: {path: data/public/bpic2013_incidents.xes}
+    max_len: 123
+    regime: large
+  bpic2020-domestic:
+    loader: eventlog
+    args: {path: data/public/bpic2020_domestic.xes}
+    max_len: 24
+    regime: large
+
+# Grid search with the case-level protocol (experiments/grid.py), for every
+# log: the baseline backbones are trained on fold 0 and selected on its
+# validation NDCG@5; enhanced models and competitors built on a backbone use
+# its values.
+grid:
+  fold: 0
+  datasets: [dev1-bloom, dev1-section, dev1-resource, bpi-2012, oulad-fff, ednet-kt3,
+             helpdesk, sepsis, bpic2013-incidents, bpic2020-domestic]
+  gru4rec:  {embedding_dim: [32, 64, 128], num_layers: [1], dropout: [0.2, 0.3],
+             lr: [0.0005, 0.001]}
+  sasrec:   {embedding_dim: [32, 64], num_blocks: [1, 2], num_heads: [2],
+             dropout: [0.2, 0.3], lr: [0.0005, 0.001]}
+  bert4rec: {embedding_dim: [32, 64], num_blocks: [1, 2], num_heads: [2],
+             dropout: [0.2, 0.3], lr: [0.0005, 0.001], mask_prob: [0.2, 0.4]}
+
+# Competitors (docs/competitors/).
+competitors:
+  mezini_alpha: 0.25
+  declare_min_support: 0.85
+
+# Best hyperparameters, selected on validation NDCG@5 of fold 0 by the
+# case-level grid search (experiments/grid.py), for every log.
+hyperparameters:
+  gru4rec:
+    dev1-bloom:    {dropout: 0.3, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.7682
+    dev1-section:  {dropout: 0.2, embedding_dim: 128, lr: 0.001, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.6192
+    dev1-resource: {dropout: 0.2, embedding_dim: 64, lr: 0.0005, num_layers: 1, hidden_dim: 64}   # val NDCG@5 = 0.5418
+    bpi-2012:      {dropout: 0.3, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.9336
+    oulad-fff:     {dropout: 0.2, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.8526
+    ednet-kt3:     {dropout: 0.2, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.9611
+    helpdesk:      {dropout: 0.2, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.9168
+    sepsis:        {dropout: 0.3, embedding_dim: 128, lr: 0.0005, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.8433
+    bpic2013-incidents: {dropout: 0.2, embedding_dim: 128, lr: 0.001, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.8347
+    bpic2020-domestic: {dropout: 0.2, embedding_dim: 128, lr: 0.001, num_layers: 1, hidden_dim: 128}   # val NDCG@5 = 0.8961
+  sasrec:
+    helpdesk:      {dropout: 0.2, embedding_dim: 32, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.9162
+    sepsis:        {dropout: 0.3, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.8313
+    bpic2013-incidents: {dropout: 0.2, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.8364
+    bpic2020-domestic: {dropout: 0.2, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.8974
+    dev1-bloom:    {dropout: 0.3, embedding_dim: 32, lr: 0.0005, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.7501
+    dev1-section:  {dropout: 0.2, embedding_dim: 32, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.5852
+    dev1-resource: {dropout: 0.3, embedding_dim: 32, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.5088
+    bpi-2012:      {dropout: 0.2, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.9334
+    oulad-fff:     {dropout: 0.2, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.8491
+    ednet-kt3:     {dropout: 0.3, embedding_dim: 64, lr: 0.001, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.9587
+  bert4rec:
+    helpdesk:      {dropout: 0.2, embedding_dim: 32, lr: 0.0005, mask_prob: 0.4, num_blocks: 1, num_heads: 2}   # val NDCG@5 = 0.8364
+    sepsis:        {dropout: 0.3, embedding_dim: 64, lr: 0.001, mask_prob: 0.4, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.6801
+    bpic2013-incidents: {dropout: 0.3, embedding_dim: 64, lr: 0.001, mask_prob: 0.2, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.7266
+    bpic2020-domestic: {dropout: 0.3, embedding_dim: 64, lr: 0.001, mask_prob: 0.4, num_blocks: 1, num_heads: 2}   # val NDCG@5 = 0.7816
+    dev1-bloom:    {dropout: 0.2, embedding_dim: 32, lr: 0.001, mask_prob: 0.4, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.7024
+    dev1-section:  {dropout: 0.3, embedding_dim: 64, lr: 0.001, mask_prob: 0.2, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.3395
+    dev1-resource: {dropout: 0.2, embedding_dim: 64, lr: 0.001, mask_prob: 0.4, num_blocks: 1, num_heads: 2}   # val NDCG@5 = 0.1564
+    bpi-2012:      {dropout: 0.2, embedding_dim: 64, lr: 0.001, mask_prob: 0.2, num_blocks: 1, num_heads: 2}   # val NDCG@5 = 0.8403
+    oulad-fff:     {dropout: 0.3, embedding_dim: 64, lr: 0.001, mask_prob: 0.4, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.8463
+    ednet-kt3:     {dropout: 0.2, embedding_dim: 64, lr: 0.001, mask_prob: 0.2, num_blocks: 2, num_heads: 2}   # val NDCG@5 = 0.9031
